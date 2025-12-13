@@ -121,6 +121,50 @@ def compute_centroid(
     return centroid.astype(np.float32)
 
 
+def compute_cluster_stats(results: list[tuple[dict, float]], top_k: int = 10) -> dict:
+    """
+    Compute statistics about the cluster quality of search results.
+
+    Returns:
+        Dict with mean, std, min, max of similarity scores for top-k results
+    """
+    scores = [score for _, score in results[:top_k]]
+    if not scores:
+        return {"mean": 0, "std": 0, "min": 0, "max": 0}
+
+    return {
+        "mean": float(np.mean(scores)),
+        "std": float(np.std(scores)),
+        "min": float(np.min(scores)),
+        "max": float(np.max(scores)),
+    }
+
+
+def compute_result_overlap(
+    results1: list[tuple[dict, float]],
+    results2: list[tuple[dict, float]],
+    top_k: int = 10,
+) -> dict:
+    """
+    Compute overlap between two result sets.
+
+    Returns:
+        Dict with overlap count, jaccard similarity, and new/dropped issue IDs
+    """
+    ids1 = {r[0]["id"] for r in results1[:top_k]}
+    ids2 = {r[0]["id"] for r in results2[:top_k]}
+
+    intersection = ids1 & ids2
+    union = ids1 | ids2
+
+    return {
+        "overlap_count": len(intersection),
+        "jaccard": len(intersection) / len(union) if union else 0,
+        "new_count": len(ids2 - ids1),
+        "dropped_count": len(ids1 - ids2),
+    }
+
+
 def compute_drift(vec1: np.ndarray, vec2: np.ndarray) -> dict:
     """
     Compute drift metrics between two vectors.
@@ -179,10 +223,24 @@ def refine_search(
     original_centroid = current_centroid.copy()
 
     history = []
+    prev_results = None
+
+    # Get initial results for comparison
+    initial_results = embedder.search_by_vector(current_centroid, k=results_k * 2)
+    initial_stats = compute_cluster_stats(initial_results, top_k=top_k_for_centroid)
 
     for i in range(iterations):
         # Search with current centroid
         results = embedder.search_by_vector(current_centroid, k=results_k * 2)
+
+        # Compute cluster quality metrics
+        cluster_stats = compute_cluster_stats(results, top_k=top_k_for_centroid)
+
+        # Compute result overlap with previous iteration
+        if prev_results is not None:
+            overlap = compute_result_overlap(prev_results, results, top_k=top_k_for_centroid)
+        else:
+            overlap = compute_result_overlap(initial_results, results, top_k=top_k_for_centroid)
 
         # Compute new centroid from results
         new_centroid = compute_centroid(
@@ -205,17 +263,23 @@ def refine_search(
             "top_results": [(r[0]["number"], r[0]["repo"].split("/")[-1], r[1]) for r in results[:5]],
             "drift_from_previous": drift_from_prev,
             "drift_from_original": drift_from_original,
+            "cluster_stats": cluster_stats,
+            "result_overlap": overlap,
         }
         history.append(iteration_info)
 
+        prev_results = results
         current_centroid = blended_centroid
 
     # Final search with refined centroid
     final_results = embedder.search_by_vector(current_centroid, k=results_k)
+    final_stats = compute_cluster_stats(final_results, top_k=top_k_for_centroid)
 
     return {
         "results": final_results,
         "history": history,
+        "initial_stats": initial_stats,
+        "final_stats": final_stats,
         "final_drift_from_original": compute_drift(original_centroid, current_centroid),
     }
 

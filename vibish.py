@@ -401,16 +401,35 @@ def cmd_search(args):
             print("Refinement History")
             print("=" * 60)
             for h in refinement["history"]:
+                stats = h["cluster_stats"]
+                overlap = h["result_overlap"]
                 print(f"\nIteration {h['iteration']}:")
-                print(f"  Drift from previous: {h['drift_from_previous']['angular_distance_degrees']:.2f} degrees")
-                print(f"  Drift from original: {h['drift_from_original']['angular_distance_degrees']:.2f} degrees")
-                print(f"  Top results: ", end="")
+                print(f"  Drift: {h['drift_from_original']['angular_distance_degrees']:.1f} deg from original, "
+                      f"{h['drift_from_previous']['angular_distance_degrees']:.1f} deg from prev")
+                print(f"  Cluster: mean={stats['mean']:.3f}, std={stats['std']:.3f}, "
+                      f"range=[{stats['min']:.3f}, {stats['max']:.3f}]")
+                print(f"  Results: {overlap['overlap_count']}/10 same, "
+                      f"+{overlap['new_count']} new, -{overlap['dropped_count']} dropped")
+                print(f"  Top: ", end="")
                 top = [f"{r[1]}#{r[0]}" for r in h["top_results"][:3]]
                 print(", ".join(top))
 
+            # Summary comparison
+            initial = refinement["initial_stats"]
+            final = refinement["final_stats"]
             final_drift = refinement["final_drift_from_original"]
-            print(f"\nFinal drift from original: {final_drift['angular_distance_degrees']:.2f} degrees")
-            print(f"Cosine similarity to original: {final_drift['cosine_similarity']:.4f}")
+
+            print(f"\nSummary")
+            print("=" * 60)
+            print(f"Cluster quality improvement:")
+            print(f"  Mean similarity: {initial['mean']:.3f} -> {final['mean']:.3f} "
+                  f"({'+' if final['mean'] > initial['mean'] else ''}{final['mean'] - initial['mean']:.3f})")
+            print(f"  Std deviation:   {initial['std']:.3f} -> {final['std']:.3f} "
+                  f"({'tighter' if final['std'] < initial['std'] else 'looser'})")
+            print(f"  Score range:     [{initial['min']:.3f}, {initial['max']:.3f}] -> "
+                  f"[{final['min']:.3f}, {final['max']:.3f}]")
+            print(f"\nCentroid drift: {final_drift['angular_distance_degrees']:.1f} degrees "
+                  f"(cosine sim: {final_drift['cosine_similarity']:.3f})")
 
             results = refinement["results"]
             results = filter_by_state(results, args.state, args.k)
