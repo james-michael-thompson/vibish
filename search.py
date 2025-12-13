@@ -111,6 +111,7 @@ def interactive_search(embedder: IssueEmbeddings) -> None:
     print("=" * 50)
     print(f"Available concepts: {', '.join(CONCEPTS.keys())}")
     print("Or enter a free-form query")
+    print("Prefix with 'open:' or 'closed:' to filter by state")
     print("Type 'quit' to exit\n")
 
     while True:
@@ -122,13 +123,36 @@ def interactive_search(embedder: IssueEmbeddings) -> None:
         if query.lower() in ("quit", "exit", "q"):
             break
 
-        if query in CONCEPTS:
-            results = search_concept(embedder, query, k=10)
-            print(f"\nResults for concept '{query}':")
-        else:
-            results = embedder.search(query, k=10)
-            print(f"\nResults for query '{query}':")
+        # Parse state filter prefix
+        state_filter = None
+        if query.lower().startswith("open:"):
+            state_filter = "open"
+            query = query[5:].strip()
+        elif query.lower().startswith("closed:"):
+            state_filter = "closed"
+            query = query[7:].strip()
 
+        if not query:
+            print("Please enter a query after the state filter")
+            continue
+
+        # Fetch more if filtering
+        fetch_k = 50 if state_filter else 10
+
+        if query in CONCEPTS:
+            results = search_concept(embedder, query, k=fetch_k)
+            label = f"concept '{query}'"
+        else:
+            results = embedder.search(query, k=fetch_k)
+            label = f"query '{query}'"
+
+        # Apply state filter
+        if state_filter:
+            results = [(issue, score) for issue, score in results if issue.get("state") == state_filter]
+            results = results[:10]
+            label += f" ({state_filter} only)"
+
+        print(f"\nResults for {label}:")
         print(format_results(results))
 
 

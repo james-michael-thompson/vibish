@@ -60,9 +60,17 @@ Examples:
   vibish index summarize                 Show index stats
   vibish search -q "memory leak"         Find issues about memory leaks
   vibish search --concept race_conditions
-  vibish search -i                       Interactive search mode
+  vibish search -q "deadlock" -s open    Search open issues only
+  vibish search -i                       Interactive mode (use 'open: query')
   vibish vibe                            Do fetch + index + search
   vibish nuke                            Start fresh
+
+Search options:
+  -q, --query QUERY     Free-form search query
+  --concept CONCEPT     Search by predefined concept
+  -s, --state STATE     Filter by state: open or closed
+  -k N                  Number of results (default: 10)
+  -i, --interactive     Interactive search mode
 
 Concepts:
   race_conditions          Data races, deadlocks, timing issues
@@ -309,6 +317,21 @@ def filter_by_state(results: list[tuple[dict, float]], state: str | None, k: int
 
 def cmd_search(args):
     """Search for issues."""
+    # Check for incompatible options
+    if args.interactive:
+        if args.state:
+            print("Note: --state is ignored in interactive mode.")
+            print("Use 'open:' or 'closed:' prefix instead (e.g., 'open: memory leak')")
+            print()
+        if args.concept:
+            print("Note: --concept is ignored in interactive mode.")
+            print(f"Just type '{args.concept}' at the prompt.")
+            print()
+        if args.query:
+            print("Note: --query is ignored in interactive mode.")
+            print(f"Just type your query at the prompt.")
+            print()
+
     embedder = IssueEmbeddings()
     embedder.load(args.index_dir)
 
