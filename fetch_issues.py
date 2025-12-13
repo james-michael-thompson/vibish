@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 
 REPOS = [
-    "kubernetes/kubernetes",
+    # "kubernetes/kubernetes",  # ~50K issues, enable when ready for full scale
     "kubernetes-sigs/karpenter",
     "aws/karpenter-provider-aws",
 ]

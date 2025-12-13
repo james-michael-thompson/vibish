@@ -1,7 +1,7 @@
 [project]
-name = "issue-embeddings"
+name = "vibish"
 version = "0.1.0"
-description = "Add your description here"
+description = "Find GitHub issues by vibe using semantic search"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,3 +10,13 @@ dependencies = [
     "sentence-transformers>=5.2.0",
     "tqdm>=4.67.1",
 ]
+
+[project.scripts]
+vibish = "vibish:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

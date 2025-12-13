@@ -11,3 +11,5 @@ wheels/
 
 # Data files (issues and embeddings index)
 data/
+data.old/
+*.nuked/
