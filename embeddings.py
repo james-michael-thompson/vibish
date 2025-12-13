@@ -89,6 +89,24 @@ class IssueEmbeddings:
 
         print(f"Index built with {self.index.ntotal} vectors")
 
+    def embed_text(self, text: str) -> np.ndarray:
+        """Embed a single text string and return the vector."""
+        embedding = self.model.encode(
+            [text],
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        ).astype(np.float32)
+        return embedding[0]
+
+    def embed_texts(self, texts: list[str]) -> np.ndarray:
+        """Embed multiple text strings and return the vectors."""
+        embeddings = self.model.encode(
+            texts,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        ).astype(np.float32)
+        return embeddings
+
     def search(
         self,
         query: str,
@@ -99,18 +117,28 @@ class IssueEmbeddings:
 
         Returns list of (issue, score) tuples.
         """
+        query_embedding = self.embed_text(query)
+        return self.search_by_vector(query_embedding, k)
+
+    def search_by_vector(
+        self,
+        query_vector: np.ndarray,
+        k: int = 10,
+    ) -> list[tuple[dict, float]]:
+        """
+        Search for issues similar to a query vector.
+
+        Returns list of (issue, score) tuples.
+        """
         if self.index is None:
             raise RuntimeError("Index not built. Call build_index() first.")
 
-        # Embed the query
-        query_embedding = self.model.encode(
-            [query],
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-        ).astype(np.float32)
+        # Ensure correct shape
+        if query_vector.ndim == 1:
+            query_vector = query_vector.reshape(1, -1)
 
         # Search
-        scores, indices = self.index.search(query_embedding, k)
+        scores, indices = self.index.search(query_vector.astype(np.float32), k)
 
         results = []
         for score, idx in zip(scores[0], indices[0]):
@@ -118,6 +146,23 @@ class IssueEmbeddings:
                 results.append((self.issues[idx], float(score)))
 
         return results
+
+    def get_issue_embedding(self, issue_id: int) -> np.ndarray | None:
+        """Get the embedding vector for a specific issue by its ID."""
+        for i, issue in enumerate(self.issues):
+            if issue["id"] == issue_id:
+                # Reconstruct from index
+                return faiss.rev_swig_ptr(
+                    self.index.get_xb(), self.index.ntotal * self.dimension
+                ).reshape(self.index.ntotal, self.dimension)[i]
+        return None
+
+    def get_embeddings_by_indices(self, indices: list[int]) -> np.ndarray:
+        """Get embedding vectors for issues by their index positions."""
+        all_vectors = faiss.rev_swig_ptr(
+            self.index.get_xb(), self.index.ntotal * self.dimension
+        ).reshape(self.index.ntotal, self.dimension)
+        return all_vectors[indices]
 
     def save(self, output_dir: str = "data/index") -> None:
         """Save index and metadata to disk."""

@@ -28,6 +28,7 @@ from search import (
     search_concept,
     search_all_concepts,
     search_with_prompts,
+    refine_search,
     format_results,
     interactive_search,
 )
@@ -372,16 +373,54 @@ def cmd_search(args):
     if args.interactive:
         interactive_search(embedder)
     elif args.prompts:
-        results = search_with_prompts(embedder, args.prompts, k=fetch_k)
-        results = filter_by_state(results, args.state, args.k)
-        state_msg = f" ({args.state} only)" if args.state else ""
-        prompt_summary = f"{len(args.prompts)} prompt(s)"
-        print(f"\nResults for {prompt_summary}{state_msg}:\n")
-        print("Prompts used:")
-        for p in args.prompts:
-            print(f"  - {p}")
-        print()
-        print(format_results(results, max_display=args.k))
+        if args.refine:
+            # Iterative refinement mode
+            print(f"\nRefining search over {args.refine} iteration(s)...")
+            print("Prompts used:")
+            for p in args.prompts:
+                print(f"  - {p}")
+            print()
+
+            refinement = refine_search(
+                embedder,
+                args.prompts,
+                iterations=args.refine,
+                top_k_for_centroid=10,
+                results_k=fetch_k,
+                anchor_weight=args.anchor_weight,
+            )
+
+            # Show drift history
+            print("Refinement History")
+            print("=" * 60)
+            for h in refinement["history"]:
+                print(f"\nIteration {h['iteration']}:")
+                print(f"  Drift from previous: {h['drift_from_previous']['angular_distance_degrees']:.2f} degrees")
+                print(f"  Drift from original: {h['drift_from_original']['angular_distance_degrees']:.2f} degrees")
+                print(f"  Top results: ", end="")
+                top = [f"{r[1]}#{r[0]}" for r in h["top_results"][:3]]
+                print(", ".join(top))
+
+            final_drift = refinement["final_drift_from_original"]
+            print(f"\nFinal drift from original: {final_drift['angular_distance_degrees']:.2f} degrees")
+            print(f"Cosine similarity to original: {final_drift['cosine_similarity']:.4f}")
+
+            results = refinement["results"]
+            results = filter_by_state(results, args.state, args.k)
+            state_msg = f" ({args.state} only)" if args.state else ""
+            print(f"\nRefined results{state_msg}:\n")
+            print(format_results(results, max_display=args.k))
+        else:
+            results = search_with_prompts(embedder, args.prompts, k=fetch_k)
+            results = filter_by_state(results, args.state, args.k)
+            state_msg = f" ({args.state} only)" if args.state else ""
+            prompt_summary = f"{len(args.prompts)} prompt(s)"
+            print(f"\nResults for {prompt_summary}{state_msg}:\n")
+            print("Prompts used:")
+            for p in args.prompts:
+                print(f"  - {p}")
+            print()
+            print(format_results(results, max_display=args.k))
     elif args.concept:
         results = search_concept(embedder, args.concept, k=fetch_k)
         results = filter_by_state(results, args.state, args.k)
@@ -587,6 +626,14 @@ def main():
     )
     search_parser.add_argument(
         "--state", "-s", choices=["open", "closed"], help="Filter by issue state"
+    )
+    search_parser.add_argument(
+        "--refine", "-r", type=int, metavar="N",
+        help="Refine search over N iterations using centroid of top results"
+    )
+    search_parser.add_argument(
+        "--anchor-weight", type=float, default=0.3,
+        help="Weight for original prompt centroid during refinement (0-1, default: 0.3)"
     )
     search_parser.add_argument(
         "--interactive", "-i", action="store_true", help="Interactive mode"

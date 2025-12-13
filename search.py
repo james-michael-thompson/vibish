@@ -67,6 +67,159 @@ def search_with_prompts(
     return sorted_results[:k]
 
 
+import numpy as np
+
+
+def compute_centroid(
+    embedder: IssueEmbeddings,
+    results: list[tuple[dict, float]],
+    top_k: int = 10,
+    weighted: bool = True,
+) -> np.ndarray:
+    """
+    Compute the centroid of top search results.
+
+    Args:
+        embedder: The embeddings manager
+        results: List of (issue, score) tuples
+        top_k: Number of top results to use
+        weighted: If True, weight by score; if False, simple average
+
+    Returns:
+        Normalized centroid vector
+    """
+    top_results = results[:top_k]
+
+    # Find indices of these issues in the embedder
+    indices = []
+    weights = []
+    for issue, score in top_results:
+        for i, emb_issue in enumerate(embedder.issues):
+            if emb_issue["id"] == issue["id"]:
+                indices.append(i)
+                weights.append(score)
+                break
+
+    if not indices:
+        raise ValueError("No matching issues found in index")
+
+    # Get embeddings for these indices
+    embeddings = embedder.get_embeddings_by_indices(indices)
+
+    if weighted:
+        # Weighted average by score
+        weights = np.array(weights)
+        weights = weights / weights.sum()  # Normalize weights
+        centroid = np.average(embeddings, axis=0, weights=weights)
+    else:
+        # Simple average
+        centroid = np.mean(embeddings, axis=0)
+
+    # Normalize the centroid
+    centroid = centroid / np.linalg.norm(centroid)
+
+    return centroid.astype(np.float32)
+
+
+def compute_drift(vec1: np.ndarray, vec2: np.ndarray) -> dict:
+    """
+    Compute drift metrics between two vectors.
+
+    Returns:
+        Dict with cosine_similarity, euclidean_distance, and angular_distance
+    """
+    # Ensure normalized
+    vec1 = vec1 / np.linalg.norm(vec1)
+    vec2 = vec2 / np.linalg.norm(vec2)
+
+    cosine_sim = float(np.dot(vec1, vec2))
+    euclidean_dist = float(np.linalg.norm(vec1 - vec2))
+
+    # Angular distance in degrees
+    # Clamp to avoid numerical issues with arccos
+    cosine_sim_clamped = np.clip(cosine_sim, -1.0, 1.0)
+    angular_dist = float(np.degrees(np.arccos(cosine_sim_clamped)))
+
+    return {
+        "cosine_similarity": cosine_sim,
+        "euclidean_distance": euclidean_dist,
+        "angular_distance_degrees": angular_dist,
+    }
+
+
+def refine_search(
+    embedder: IssueEmbeddings,
+    prompts: list[str],
+    iterations: int = 3,
+    top_k_for_centroid: int = 10,
+    results_k: int = 20,
+    anchor_weight: float = 0.3,
+    show_drift: bool = True,
+) -> dict:
+    """
+    Iteratively refine search using centroid of top results.
+
+    Args:
+        embedder: The embeddings manager
+        prompts: Initial search prompts
+        iterations: Number of refinement iterations
+        top_k_for_centroid: How many top results to use for centroid
+        results_k: How many results to return
+        anchor_weight: Weight given to original prompt centroid (0-1)
+                       Higher = more stable, lower = more drift
+        show_drift: Whether to track drift metrics
+
+    Returns:
+        Dict with final results, all iterations, and drift history
+    """
+    # Compute initial centroid from prompts
+    prompt_embeddings = embedder.embed_texts(prompts)
+    current_centroid = np.mean(prompt_embeddings, axis=0)
+    current_centroid = current_centroid / np.linalg.norm(current_centroid)
+    original_centroid = current_centroid.copy()
+
+    history = []
+
+    for i in range(iterations):
+        # Search with current centroid
+        results = embedder.search_by_vector(current_centroid, k=results_k * 2)
+
+        # Compute new centroid from results
+        new_centroid = compute_centroid(
+            embedder, results, top_k=top_k_for_centroid, weighted=True
+        )
+
+        # Mix with original centroid to prevent drift
+        blended_centroid = (
+            anchor_weight * original_centroid +
+            (1 - anchor_weight) * new_centroid
+        )
+        blended_centroid = blended_centroid / np.linalg.norm(blended_centroid)
+
+        # Track drift
+        drift_from_prev = compute_drift(current_centroid, blended_centroid)
+        drift_from_original = compute_drift(original_centroid, blended_centroid)
+
+        iteration_info = {
+            "iteration": i + 1,
+            "top_results": [(r[0]["number"], r[0]["repo"].split("/")[-1], r[1]) for r in results[:5]],
+            "drift_from_previous": drift_from_prev,
+            "drift_from_original": drift_from_original,
+        }
+        history.append(iteration_info)
+
+        current_centroid = blended_centroid
+
+    # Final search with refined centroid
+    final_results = embedder.search_by_vector(current_centroid, k=results_k)
+
+    return {
+        "results": final_results,
+        "history": history,
+        "final_drift_from_original": compute_drift(original_centroid, current_centroid),
+    }
+
+
 def search_concept(
     embedder: IssueEmbeddings,
     concept_name: str,
