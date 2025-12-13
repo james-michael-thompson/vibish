@@ -65,6 +65,7 @@ Examples:
   vibish search --concept race_conditions
   vibish search -q "deadlock" -s open    Search open issues only
   vibish search -p "race condition" -p "deadlock"   Custom prompts
+  vibish search -p "race condition" -r 3  Refine search over 3 iterations
   vibish search -i                       Interactive mode (use 'open: query')
   vibish concepts                        Show all concepts and prompts
   vibish vibe                            Do fetch + index + search
@@ -76,7 +77,13 @@ Search options:
   -p, --prompt PROMPT   Custom prompt (can be repeated for multi-prompt search)
   -s, --state STATE     Filter by state: open or closed
   -k N                  Number of results (default: 10)
+  -r, --refine N        Refine search over N iterations using centroid of results
+  --anchor-weight W     Weight for original prompts during refinement (0-1, default: 0.3)
   -i, --interactive     Interactive search mode
+
+Refinement uses pseudo-relevance feedback: it computes the centroid of top
+results and searches again from that point. The anchor weight controls drift
+from your original prompts (higher = more stable, lower = more exploration).
 
 Concepts are defined in concepts.json. Use 'vibish concepts' to see them.
 """
