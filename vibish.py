@@ -32,6 +32,7 @@ from search import (
     format_results,
     interactive_search,
 )
+from discover import discover_vibes, find_optimal_k, format_vibes
 
 
 HELP_TEXT = """
@@ -43,6 +44,7 @@ Commands:
   issues <subcommand>   Manage fetched issues
   index <subcommand>    Manage the embedding index
   search                Find issues by concept or free-form query
+  discover              Find natural clusters (vibes) using GMM
   concepts              List available concepts and their prompts
   vibe                  Fetch, index, and search all in one go
   nuke                  Delete everything (issues + index)
@@ -67,6 +69,8 @@ Examples:
   vibish search -p "race condition" -p "deadlock"   Custom prompts
   vibish search -p "race condition" -r 3  Refine search over 3 iterations
   vibish search -i                       Interactive mode (use 'open: query')
+  vibish discover -k 20                  Discover 20 natural clusters
+  vibish discover --find-k               Find optimal number of clusters
   vibish concepts                        Show all concepts and prompts
   vibish vibe                            Do fetch + index + search
   vibish nuke                            Start fresh
@@ -496,6 +500,38 @@ def cmd_vibe(args):
         print(format_results(results, max_display=10))
 
 
+def cmd_discover(args):
+    """Discover natural clusters using GMM."""
+    embedder = IssueEmbeddings()
+    embedder.load(args.index_dir)
+
+    if args.find_k:
+        print("Finding optimal number of clusters...")
+        results = find_optimal_k(
+            embedder,
+            k_range=range(args.k_min, args.k_max + 1, 5),
+            use_pca=True,
+            pca_components=args.pca_dim,
+        )
+        print("\nResults:")
+        print(f"{'k':>5} {'BIC':>12} {'AIC':>12}")
+        print("-" * 31)
+        for r in results:
+            print(f"{r['k']:>5} {r['bic']:>12.0f} {r['aic']:>12.0f}")
+        best = min(results, key=lambda r: r["bic"])
+        print(f"\nBest k by BIC: {best['k']}")
+        print(f"Run 'vibish discover -k {best['k']}' to see those clusters")
+    else:
+        result = discover_vibes(
+            embedder,
+            n_vibes=args.k,
+            top_k_per_vibe=args.top_k,
+            use_pca=True,
+            pca_components=args.pca_dim,
+        )
+        print("\n" + format_vibes(result, max_issues=args.top_k))
+
+
 def cmd_nuke(args):
     """Delete everything: issues and index."""
     import shutil
@@ -665,6 +701,32 @@ def main():
         "--interactive", "-i", action="store_true", help="Interactive mode"
     )
 
+    # discover command
+    discover_parser = subparsers.add_parser(
+        "discover",
+        help="Find natural clusters (vibes) using GMM",
+        description="Use Gaussian Mixture Models to discover latent clusters in the issue embedding space.",
+    )
+    discover_parser.add_argument("--index-dir", default="data/index", help="Index directory")
+    discover_parser.add_argument(
+        "-k", type=int, default=10, help="Number of clusters to discover (default: 10)"
+    )
+    discover_parser.add_argument(
+        "--top-k", type=int, default=3, help="Representative issues per cluster (default: 3)"
+    )
+    discover_parser.add_argument(
+        "--pca-dim", type=int, default=50, help="PCA dimensions (default: 50)"
+    )
+    discover_parser.add_argument(
+        "--find-k", action="store_true", help="Find optimal k using BIC/AIC"
+    )
+    discover_parser.add_argument(
+        "--k-min", type=int, default=5, help="Min k for --find-k (default: 5)"
+    )
+    discover_parser.add_argument(
+        "--k-max", type=int, default=30, help="Max k for --find-k (default: 30)"
+    )
+
     # vibe command (full pipeline)
     vibe_parser = subparsers.add_parser(
         "vibe",
@@ -707,6 +769,7 @@ def main():
         "index": cmd_index,
         "concepts": cmd_concepts,
         "search": cmd_search,
+        "discover": cmd_discover,
         "vibe": cmd_vibe,
         "nuke": cmd_nuke,
     }
