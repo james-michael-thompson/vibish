@@ -2,48 +2,69 @@
 Search for issues related to specific concepts.
 """
 
+import json
+from pathlib import Path
+
 from embeddings import IssueEmbeddings
 
 
-# Predefined concepts for Karpenter/Kubernetes issues
-# Each concept has multiple query phrases to capture different aspects
-CONCEPTS = {
-    "race_conditions": [
-        "race condition concurrent access data race",
-        "timing issue synchronization deadlock mutex lock contention",
-        "concurrent modification thread safety atomicity",
-        "parallel execution ordering conflict state corruption",
-    ],
-    "node_selection": [
-        "node selection node filtering node affinity",
-        "nodeSelector node scheduling pod placement",
-        "taint toleration node matching constraint",
-        "topology spread zone selection availability",
-        "node requirements node constraints scheduling",
-    ],
-    "constraints": [
-        "resource constraints limits requests quota",
-        "scheduling constraints pod constraints",
-        "node constraints instance type selection",
-        "memory CPU resource allocation budget",
-        "capacity constraints provisioner limits",
-    ],
-    "provisioning_performance": [
-        "provisioning slow performance latency",
-        "consolidation efficiency node lifecycle",
-        "scale up delay provisioner speed",
-        "node startup time boot performance",
-        "scheduling throughput batch scheduling",
-        "deprovisioning consolidation interruption",
-    ],
-}
+DEFAULT_CONCEPTS_FILE = Path(__file__).parent / "concepts.json"
 
 
-def get_concept_queries(concept_name: str) -> list[str]:
+def load_concepts(concepts_file: Path | str | None = None) -> dict:
+    """Load concepts from JSON file."""
+    path = Path(concepts_file) if concepts_file else DEFAULT_CONCEPTS_FILE
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = json.load(f)
+    # Extract just the prompts for backward compatibility
+    return {name: config["prompts"] for name, config in data.items()}
+
+
+def load_concepts_with_descriptions(concepts_file: Path | str | None = None) -> dict:
+    """Load concepts with descriptions from JSON file."""
+    path = Path(concepts_file) if concepts_file else DEFAULT_CONCEPTS_FILE
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+# Load default concepts for backward compatibility
+CONCEPTS = load_concepts()
+
+
+def get_concept_queries(concept_name: str, concepts: dict | None = None) -> list[str]:
     """Get query phrases for a concept."""
-    if concept_name not in CONCEPTS:
-        raise ValueError(f"Unknown concept: {concept_name}. Known: {list(CONCEPTS.keys())}")
-    return CONCEPTS[concept_name]
+    concepts = concepts or CONCEPTS
+    if concept_name not in concepts:
+        raise ValueError(f"Unknown concept: {concept_name}. Known: {list(concepts.keys())}")
+    return concepts[concept_name]
+
+
+def search_with_prompts(
+    embedder: IssueEmbeddings,
+    prompts: list[str],
+    k: int = 20,
+) -> list[tuple[dict, float]]:
+    """
+    Search for issues using multiple prompts.
+
+    Combines results from all prompts, keeping best score per issue.
+    Returns deduplicated results sorted by best score.
+    """
+    all_results = {}  # issue_id -> (issue, best_score)
+
+    for prompt in prompts:
+        results = embedder.search(prompt, k=k)
+        for issue, score in results:
+            issue_id = issue["id"]
+            if issue_id not in all_results or score > all_results[issue_id][1]:
+                all_results[issue_id] = (issue, score)
+
+    sorted_results = sorted(all_results.values(), key=lambda x: x[1], reverse=True)
+    return sorted_results[:k]
 
 
 def search_concept(

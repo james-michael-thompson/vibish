@@ -1,0 +1,42 @@
+{
+  "race_conditions": {
+    "description": "Data races, deadlocks, timing issues",
+    "prompts": [
+      "race condition concurrent access data race",
+      "timing issue synchronization deadlock mutex lock contention",
+      "concurrent modification thread safety atomicity",
+      "parallel execution ordering conflict state corruption"
+    ]
+  },
+  "node_selection": {
+    "description": "Affinity, taints, topology, scheduling",
+    "prompts": [
+      "node selection node filtering node affinity",
+      "nodeSelector node scheduling pod placement",
+      "taint toleration node matching constraint",
+      "topology spread zone selection availability",
+      "node requirements node constraints scheduling"
+    ]
+  },
+  "constraints": {
+    "description": "Resource limits, quotas, budgets",
+    "prompts": [
+      "resource constraints limits requests quota",
+      "scheduling constraints pod constraints",
+      "node constraints instance type selection",
+      "memory CPU resource allocation budget",
+      "capacity constraints provisioner limits"
+    ]
+  },
+  "provisioning_performance": {
+    "description": "Scaling speed, consolidation, node lifecycle",
+    "prompts": [
+      "provisioning slow performance latency",
+      "consolidation efficiency node lifecycle",
+      "scale up delay provisioner speed",
+      "node startup time boot performance",
+      "scheduling throughput batch scheduling",
+      "deprovisioning consolidation interruption"
+    ]
+  }
+}

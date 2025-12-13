@@ -13,3 +13,4 @@ wheels/
 data/
 data.old/
 *.nuked/
+*.swp

@@ -24,8 +24,10 @@ from fetch_issues import fetch_and_save_issues, load_issues
 from embeddings import IssueEmbeddings, create_index_from_issues
 from search import (
     CONCEPTS,
+    load_concepts_with_descriptions,
     search_concept,
     search_all_concepts,
+    search_with_prompts,
     format_results,
     interactive_search,
 )
@@ -40,6 +42,7 @@ Commands:
   issues <subcommand>   Manage fetched issues
   index <subcommand>    Manage the embedding index
   search                Find issues by concept or free-form query
+  concepts              List available concepts and their prompts
   vibe                  Fetch, index, and search all in one go
   nuke                  Delete everything (issues + index)
 
@@ -57,26 +60,24 @@ Index subcommands:
 Examples:
   vibish fetch                           Download issues from GitHub
   vibish index build                     Build the embedding index
-  vibish index summarize                 Show index stats
   vibish search -q "memory leak"         Find issues about memory leaks
   vibish search --concept race_conditions
   vibish search -q "deadlock" -s open    Search open issues only
+  vibish search -p "race condition" -p "deadlock"   Custom prompts
   vibish search -i                       Interactive mode (use 'open: query')
+  vibish concepts                        Show all concepts and prompts
   vibish vibe                            Do fetch + index + search
   vibish nuke                            Start fresh
 
 Search options:
   -q, --query QUERY     Free-form search query
-  --concept CONCEPT     Search by predefined concept
+  --concept CONCEPT     Search by predefined concept (from concepts.json)
+  -p, --prompt PROMPT   Custom prompt (can be repeated for multi-prompt search)
   -s, --state STATE     Filter by state: open or closed
   -k N                  Number of results (default: 10)
   -i, --interactive     Interactive search mode
 
-Concepts:
-  race_conditions          Data races, deadlocks, timing issues
-  node_selection           Affinity, taints, topology, scheduling
-  constraints              Resource limits, quotas, budgets
-  provisioning_performance Scaling speed, consolidation, node lifecycle
+Concepts are defined in concepts.json. Use 'vibish concepts' to see them.
 """
 
 INDEX_HELP_TEXT = """
@@ -117,6 +118,32 @@ Examples:
 def cmd_help(args):
     """Show overall help."""
     print(HELP_TEXT)
+
+
+def cmd_concepts(args):
+    """List available concepts and their prompts."""
+    concepts = load_concepts_with_descriptions()
+
+    if not concepts:
+        print("No concepts defined. Create concepts.json to add some.")
+        return
+
+    print("Available Concepts")
+    print("=" * 60)
+
+    for name, config in concepts.items():
+        desc = config.get("description", "")
+        prompts = config.get("prompts", [])
+
+        print(f"\n{name}")
+        if desc:
+            print(f"  {desc}")
+        print(f"  Prompts ({len(prompts)}):")
+        for prompt in prompts:
+            print(f"    - {prompt}")
+
+    print(f"\nConcepts are defined in: concepts.json")
+    print("Edit this file to add or modify concepts.")
 
 
 def cmd_fetch(args):
@@ -331,6 +358,10 @@ def cmd_search(args):
             print("Note: --query is ignored in interactive mode.")
             print(f"Just type your query at the prompt.")
             print()
+        if args.prompts:
+            print("Note: --prompt is ignored in interactive mode.")
+            print("Just type your prompts at the prompt.")
+            print()
 
     embedder = IssueEmbeddings()
     embedder.load(args.index_dir)
@@ -340,6 +371,17 @@ def cmd_search(args):
 
     if args.interactive:
         interactive_search(embedder)
+    elif args.prompts:
+        results = search_with_prompts(embedder, args.prompts, k=fetch_k)
+        results = filter_by_state(results, args.state, args.k)
+        state_msg = f" ({args.state} only)" if args.state else ""
+        prompt_summary = f"{len(args.prompts)} prompt(s)"
+        print(f"\nResults for {prompt_summary}{state_msg}:\n")
+        print("Prompts used:")
+        for p in args.prompts:
+            print(f"  - {p}")
+        print()
+        print(format_results(results, max_display=args.k))
     elif args.concept:
         results = search_concept(embedder, args.concept, k=fetch_k)
         results = filter_by_state(results, args.state, args.k)
@@ -516,6 +558,13 @@ def main():
     # index help
     index_subparsers.add_parser("help", help="Show index help")
 
+    # concepts command
+    concepts_parser = subparsers.add_parser(
+        "concepts",
+        help="List available concepts and their prompts",
+        description="Show all concepts defined in concepts.json.",
+    )
+
     # search command
     search_parser = subparsers.add_parser(
         "search",
@@ -529,6 +578,10 @@ def main():
         help="Predefined concept to search",
     )
     search_parser.add_argument("--query", "-q", help="Free-form search query")
+    search_parser.add_argument(
+        "--prompt", "-p", dest="prompts", action="append",
+        help="Custom prompt (can be repeated for multi-prompt search)"
+    )
     search_parser.add_argument(
         "-k", type=int, default=10, help="Number of results (default: 10)"
     )
@@ -579,6 +632,7 @@ def main():
         "fetch": cmd_fetch,
         "issues": cmd_issues,
         "index": cmd_index,
+        "concepts": cmd_concepts,
         "search": cmd_search,
         "vibe": cmd_vibe,
         "nuke": cmd_nuke,
