@@ -66,6 +66,7 @@ Examples:
   vibish search -q "memory leak"         Find issues about memory leaks
   vibish search --concept race_conditions
   vibish search -q "deadlock" -s open    Search open issues only
+  vibish search -f mycode.py             Find issues similar to a file
   vibish search -p "race condition" -p "deadlock"   Custom prompts
   vibish search -p "race condition" -r 3  Refine search over 3 iterations
   vibish search -i                       Interactive mode (use 'open: query')
@@ -77,6 +78,7 @@ Examples:
 
 Search options:
   -q, --query QUERY     Free-form search query
+  -f, --file FILE       File to use as search input (embeds file content)
   --concept CONCEPT     Search by predefined concept (from concepts.json)
   -p, --prompt PROMPT   Custom prompt (can be repeated for multi-prompt search)
   -s, --state STATE     Filter by state: open or closed
@@ -374,6 +376,16 @@ def cmd_search(args):
             print("Note: --prompt is ignored in interactive mode.")
             print("Just type your prompts at the prompt.")
             print()
+        if args.file:
+            print("Note: --file is ignored in interactive mode.")
+            print()
+
+    # Check preconditions before loading index
+    if args.file and not args.interactive:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(f"Error: File not found: {args.file}")
+            sys.exit(1)
 
     embedder = IssueEmbeddings()
     embedder.load(args.index_dir)
@@ -462,6 +474,17 @@ def cmd_search(args):
         results = filter_by_state(results, args.state, args.k)
         state_msg = f" ({args.state} only)" if args.state else ""
         print(f"\nResults for query '{args.query}'{state_msg}:\n")
+        print(format_results(results, max_display=args.k))
+    elif args.file:
+        content = Path(args.file).read_text()
+        if len(content) > 10000:
+            content = content[:10000]
+            print(f"Note: File truncated to 10000 characters")
+        query_vector = embedder.embed_text(content)
+        results = embedder.search_by_vector(query_vector, k=fetch_k)
+        results = filter_by_state(results, args.state, args.k)
+        state_msg = f" ({args.state} only)" if args.state else ""
+        print(f"\nResults for file '{args.file}'{state_msg}:\n")
         print(format_results(results, max_display=args.k))
     else:
         print("Searching all concepts...\n")
@@ -679,6 +702,9 @@ def main():
         help="Predefined concept to search",
     )
     search_parser.add_argument("--query", "-q", help="Free-form search query")
+    search_parser.add_argument(
+        "--file", "-f", help="File to use as search input (embeds file content)"
+    )
     search_parser.add_argument(
         "--prompt", "-p", dest="prompts", action="append",
         help="Custom prompt (can be repeated for multi-prompt search)"
